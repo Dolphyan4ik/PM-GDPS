@@ -22,19 +22,34 @@ $commentpage = $page*$count;
 if($mode == 0) $modeColumn = "commentID";
 else $modeColumn = "likes";
 
+$cType = isset($_POST['cType']) ? (int)$_POST['cType'] : 0;
+$userListWhere = "";
+
 if(isset($_POST['levelID'])) {
 	$filterColumn = 'levelID';
 	$filterToFilter = '';
 	$displayLevelID = false;
 	$filterID = ExploitPatch::numbercolon($_POST["levelID"]);
-	if($_POST["levelID"] > 0) {
-		$levelExists = $db->prepare("SELECT COUNT(*) FROM levels WHERE levelID = :levelID");
-		$levelExists->execute([':levelID' => $filterID]);
+
+	// Поддержка загрузки модераторских заметок 2.209 (cType == 8)
+	if ($cType === 8) {
+		$accountID = !empty($_POST['accountID']) ? GJPCheck::getAccountIDOrDie() : 0;
+		$st = $db->prepare("SELECT isAdmin FROM accounts WHERE accountID = :acc");
+		$st->execute([':acc' => $accountID]);
+		if ((int)$st->fetchColumn() !== 1 && !$gs->checkPermission($accountID, "dashboardModTools")) {
+			exit("-2");
+		}
+		$filterID = -100000000 - (int)$filterID;
 	} else {
-		$levelExists = $db->prepare("SELECT COUNT(*) FROM lists WHERE listID = :levelID");
-		$levelExists->execute([':levelID' => ExploitPatch::number($filterID)]);
+		if($_POST["levelID"] > 0) {
+			$levelExists = $db->prepare("SELECT COUNT(*) FROM levels WHERE levelID = :levelID");
+			$levelExists->execute([':levelID' => $filterID]);
+		} else {
+			$levelExists = $db->prepare("SELECT COUNT(*) FROM lists WHERE listID = :levelID");
+			$levelExists->execute([':levelID' => ExploitPatch::number($filterID)]);
+		}
+		if($levelExists->fetchColumn() == 0) exit("-2"); // Don't return comments from nonexistent levels
 	}
-	if($levelExists->fetchColumn() == 0) exit("-2"); // Don't return comments from nonexistent levels
 	$userListJoin = "";
 } elseif(isset($_POST['userID'])) {
 	$filterColumn = 'userID';
@@ -43,7 +58,7 @@ if(isset($_POST['levelID'])) {
 	$filterID = ExploitPatch::number($_POST["userID"]);
 	$userListColumns = ", levels.unlisted";
 	$userListJoin = " LEFT JOIN levels ON comments.levelID = levels.levelID LEFT JOIN lists ON (comments.levelID * -1) = lists.listID";
-	$userListWhere = "AND (levels.unlisted = 0 OR lists.unlisted = 0)";
+	$userListWhere = "AND (levels.unlisted = 0 OR lists.unlisted = 0) AND comments.levelID > -100000000";
 	$accountID = !empty($_POST['accountID']) ? GJPCheck::getAccountIDOrDie() : 0;
 	$targetAccountID = $gs->getExtID($filterID);
 	$cS = $db->prepare("SELECT cS FROM accounts WHERE accountID = :targetAccountID");
@@ -99,4 +114,3 @@ if($binaryVersion < 32) {
 	echo "#$userstring";
 }
 echo "#${commentcount}:${commentpage}:${visiblecount}";
-?>

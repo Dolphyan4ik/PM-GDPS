@@ -8,6 +8,7 @@ require_once "../lib/exploitPatch.php";
 require_once "../lib/commands.php";
 require_once "../../config/misc.php";
 require_once "../lib/automod.php";
+
 if(Automod::isLevelsDisabled(1)) exit(($_POST['gameVersion'] > 20 ? 'temp_0_Commenting is currently disabled!' : '-1'));
 $userName = !empty($_POST['userName']) ? ExploitPatch::charclean($_POST['userName']) : "";
 $comment = !empty($_POST['comment']) ? $_POST['comment'] : "";
@@ -18,6 +19,27 @@ $comment = ($gameVersion < 20) ? ExploitPatch::url_base64_encode(ExploitPatch::r
 $levelID = ExploitPatch::numbercolon($_POST["levelID"]);
 $percent = !empty($_POST["percent"]) ? ExploitPatch::number($_POST["percent"]) : 0;
 
+$id = $gs->getIDFromPost();
+$register = is_numeric($id);
+$userID = $gs->getUserID($id, $userName);
+$uploadDate = time();
+
+// Обработка модераторских заметок 2.209 (cType == 8, levelID = targetAccountID)
+$cType = isset($_POST["cType"]) ? (int)$_POST["cType"] : 0;
+if ($cType === 8) {
+	if (!$register) die("-1");
+	$st = $db->prepare("SELECT isAdmin FROM accounts WHERE accountID = :acc");
+	$st->execute([':acc' => $id]);
+	if ((int)$st->fetchColumn() !== 1 && !$gs->checkPermission($id, "dashboardModTools")) {
+		die("-1");
+	}
+	$noteKey = -100000000 - (int)$levelID;
+	$query = $db->prepare("INSERT INTO comments (userName, comment, levelID, userID, timeStamp, percent) VALUES (:userName, :comment, :levelID, :userID, :uploadDate, 0)");
+	$query->execute([':userName' => $userName, ':comment' => $comment, ':levelID' => $noteKey, ':userID' => $userID, ':uploadDate' => $uploadDate]);
+	echo 1;
+	exit();
+}
+
 if(strpos($levelID, '-') === 0) {
     $checkLevelExist = $db->prepare("SELECT * FROM lists WHERE listID = :levelID");
 	$checkLevelExist->execute([':levelID' => ltrim($levelID, '-')]);
@@ -27,10 +49,6 @@ if(strpos($levelID, '-') === 0) {
 }
 if($checkLevelExist->rowCount() == 0) die("-1");
 
-$id = $gs->getIDFromPost();
-$register = is_numeric($id);
-$userID = $gs->getUserID($id, $userName);
-$uploadDate = time();
 $decodecomment = ExploitPatch::url_base64_decode($comment);
 $command = Commands::doCommands($id, $decodecomment, $levelID);
 if($command) ($_POST['gameVersion'] > 20 ? exit("temp_0_".$command) : exit('-1'));
@@ -72,4 +90,4 @@ if($id != "" AND $comment != "") {
 } else {
 	echo -1;
 }
-?>
+
